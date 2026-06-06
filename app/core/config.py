@@ -691,9 +691,11 @@ class Settings(BaseSettings, ConfigModel, LogConfigModel):
             value = value.strip()
 
         # 处理 Optional 类型：当值为空字符串且类型允许 None 时，转为 None
+        # 兼容 typing.Union (Python 3.9) 与 types.UnionType (Python 3.10+ PEP 604)
         origin = get_origin(expected_type)
+        is_union = origin is Union or getattr(origin, "__name__", None) == "UnionType"
         if (
-            origin is Union
+            is_union
             and type(None) in get_args(expected_type)
             and isinstance(value, str)
             and not value
