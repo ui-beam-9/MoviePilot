@@ -30,9 +30,3 @@ jobs:
           git checkout v2
           git merge upstream/v2 --no-edit
           git push
-
-      - name: Sync feature/oidc-login branch
-        run: |
-          git checkout feature/oidc-login
-          git merge upstream/v2 --no-edit
-          git push
