@@ -371,7 +371,7 @@ class MoviePilotAgent:
                 HumanMessage(content=str(message).strip()[:1000]),
             ]
         )
-        content = LLMHelper._extract_text_content(getattr(response, "content", response))
+        content = LLMHelper.extract_text_content(getattr(response, "content", response))
         return self._sanitize_chat_title(content)
 
     async def prepare_chat_title(self, message: str) -> None:
@@ -736,39 +736,6 @@ class MoviePilotAgent:
         runtime_config = await self._resolve_llm_runtime_config()
         return await LLMHelper.get_llm(streaming=streaming, **runtime_config)
 
-    @staticmethod
-    def _extract_text_content(content) -> str:
-        """
-        从消息内容中提取纯文本，过滤掉思考/推理类型的内容块。
-        :param content: 消息内容，可能是字符串或内容块列表
-        :return: 纯文本内容
-        """
-        if not content:
-            return ""
-        # 跳过思考/推理类型的内容块
-        if isinstance(content, list):
-            text_parts = []
-            for block in content:
-                if isinstance(block, str):
-                    text_parts.append(block)
-                elif isinstance(block, dict):
-                    # 优先检查 thought 标志（LangChain Google GenAI 方案）
-                    if block.get("thought"):
-                        continue
-                    if block.get("type") in (
-                            "thinking",
-                            "reasoning_content",
-                            "reasoning",
-                            "thought",
-                    ):
-                        continue
-                    if block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                    else:
-                        text_parts.append(str(block))
-            return "".join(text_parts)
-        return str(content)
-
     @classmethod
     def _has_image_input_content(cls, content: Any) -> bool:
         """
@@ -1102,9 +1069,9 @@ class MoviePilotAgent:
             self._streamed_output = ""
 
             # 获取历史消息
-            messages = memory_manager.get_agent_messages(
+            messages = list(memory_manager.get_agent_messages(
                 session_id=self.session_id, user_id=self.user_id
-            )
+            ))
 
             # 构建结构化用户消息内容
             request_payload = {
@@ -1250,7 +1217,7 @@ class MoviePilotAgent:
 
                 if token.content:
                     # content 可能是字符串或内容块列表，过滤掉思考类型的块
-                    content = self._extract_text_content(token.content)
+                    content = LLMHelper.extract_text_content(token.content)
                     if content:
                         stripper.process(content, on_token)
 
@@ -1269,6 +1236,7 @@ class MoviePilotAgent:
         self._agent_started_at = datetime.now()
         self._llm_runtime_config = None
         self._llm_provider_selection = {}
+        streaming_stopped = False
         try:
             # Agent运行配置
             agent_config = {
@@ -1316,6 +1284,7 @@ class MoviePilotAgent:
                     all_sent_via_stream,
                     streamed_text,
                 ) = await self.stream_handler.stop_streaming()
+                streaming_stopped = True
 
                 if not all_sent_via_stream:
                     # 流式输出未能发送全部内容（发送失败等）
@@ -1351,7 +1320,7 @@ class MoviePilotAgent:
                 for msg in reversed(final_messages):
                     if hasattr(msg, "type") and msg.type == "ai" and msg.content:
                         # 过滤掉思考/推理内容，只提取纯文本
-                        text = self._extract_text_content(msg.content)
+                        text = LLMHelper.extract_text_content(msg.content)
                         if text:
                             # 过滤掉包含在 <think> 标签中的内容
                             text = re.sub(
@@ -1384,7 +1353,7 @@ class MoviePilotAgent:
                 )
                 for msg in reversed(final_messages):
                     if hasattr(msg, "type") and msg.type == "ai" and msg.content:
-                        display_text = self._extract_text_content(msg.content).strip()
+                        display_text = LLMHelper.extract_text_content(msg.content).strip()
                         break
             self._save_assistant_display_message_once(display_text)
 
@@ -1418,7 +1387,8 @@ class MoviePilotAgent:
                 error=execution_error,
             )
             # 确保停止流式输出
-            await self.stream_handler.stop_streaming()
+            if not streaming_stopped:
+                await self.stream_handler.stop_streaming()
 
     async def send_agent_message(self, message: str, title: str = ""):
         """
